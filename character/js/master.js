@@ -162,7 +162,7 @@
         suit: mk(COL.suit, 0.55, { side: T.DoubleSide }),
         trim: mk(COL.trim, 0.6),
         sash: mk(COL.sash, 0.7, { side: T.DoubleSide }),
-        hair: mk(COL.hair, 0.55),
+        hair: mk(COL.hair, 0.85),
         band: mk(COL.band, 0.7, { side: T.DoubleSide }),
         shoe: mk(COL.shoe, 0.8),
         sole: mk(COL.sole, 0.9),
@@ -265,32 +265,39 @@
       for (const s of [1, -1]) ell(H, M.skin, [s * 0.011, -0.033, headR(-0.033, 0) + 0.001], [0.008, 0.007, 0.008]); // 鼻翼
       add(H, new T.BoxGeometry(0.032, 0.0042, 0.004), M.lip, [0, -0.058, headR(-0.058, 0) + 0.001]);
       add(H, new T.BoxGeometry(0.02, 0.003, 0.003), M.dark, [0, -0.065, headR(-0.065, 0)]); // 下唇阴影
-      // 头发：短而硬的黑色刺猬头，前面向上竖起，两侧和后面向后，发际线自然
+      // 头发：毛寸——两三厘米长的短发，有蓬松的层次和发束，头顶略厚，前额发束微微向上，两侧和后面向后贴
       const hairline = (th) => 0.058 - 0.118 * Math.pow((1 - Math.cos(th)) / 2, 1.3);
-      add(H, sculpt(-0.075, 0.14, 90, 128, (y, th) => headR(y, th) + 0.007 + 0.003 * Math.sin(th * 11 + y * 70), (y, th) => y > hairline(th), false), M.hair);
-      const spike = new T.ConeGeometry(0.012, 0.05, 5);
-      spike.translate(0, 0.025, 0);
-      const spikeAt = (y, th, len, sweep) => {
-        const m = add(H, spike, M.hair, sp(y, th, 0.004), [1, len, 1]);
-        const up = gauss(y, 0.132, 0.06);
-        m.quaternion.setFromUnitVectors(Y_AXIS, V(Math.sin(th) * (1 - up), 0.4 + up, Math.cos(th) * (1 - up)).add(sweep).normalize());
+      const ss = (x) => { x = Math.max(0, Math.min(1, x)); return x * x * (3 - 2 * x); };
+      const hairT = (y, th) => {
+        let t = 0.012 + 0.014 * gauss(y, 0.13, 0.07) + 0.005 * gaussA(th, 0, 0.8) * gauss(y, 0.09, 0.03);
+        t -= 0.004 * (gaussA(th, Math.PI / 2, 0.4) + gaussA(th, -Math.PI / 2, 0.4)) * gauss(y, 0.02, 0.04); // 两侧剃短一些
+        t += 0.0035 * Math.sin(th * 17 + y * 110) * Math.sin(th * 5 - y * 60) + 0.002 * Math.sin(th * 31 + y * 190); // 发丝层次
+        return t * ss((y - hairline(th)) / 0.015);
       };
-      spikeAt(0.13, 0, 1.1, V(0, 1, -0.2));
-      for (let i = 0; i < 8; i++) spikeAt(0.118, (i / 8) * TAU, 1.1, V(0, 0.9, -0.3));
-      for (let i = 0; i < 12; i++) spikeAt(0.1, (i / 12) * TAU + 0.26, 1.0, V(0, 0.75, -0.45));
-      for (let i = 0; i < 14; i++) { const th = (i / 14) * TAU; const fr = Math.abs(wrap(th)) < 0.7; spikeAt(0.078, th, fr ? 1.05 : 0.85, fr ? V(0, 1.1, 0.15) : V(0, 0.2, -0.6)); }
-      for (let i = 0; i < 9; i++) spikeAt(0.066, Math.PI * 0.6 + (i / 8) * Math.PI * 0.8, 0.7, V(0, 0.1, -0.7));
-      for (let i = 0; i < 7; i++) spikeAt(0.012, Math.PI * 0.7 + (i / 6) * Math.PI * 0.6, 0.5, V(0, -0.6, -0.6));
-      // 头带：红色布带，额前一圈，脑后打结，两条带尾
-      add(H, sculpt(0.036, 0.058, 2, 48, (y, th) => headR(y, th) + 0.012, null, false), M.band);
-      ell(H, M.band, sp(0.045, Math.PI, 0.02), [0.018, 0.015, 0.012]);
+      add(H, sculpt(-0.075, 0.145, 90, 128, (y, th) => headR(y, th) + 0.002 + hairT(y, th), (y, th) => y > hairline(th), false), M.hair);
+      const hash = (i) => { const x = Math.sin(i * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); };
+      for (let i = 0; i < 46; i++) { // 发束：短而软，朝上、朝后
+        const y = 0.055 + hash(i) * 0.075;
+        const th = hash(i + 100) * TAU;
+        if (y < hairline(th) + 0.012) continue;
+        const front = Math.abs(wrap(th)) < 0.8 && y < 0.105;
+        const out = V(Math.sin(th), 0, Math.cos(th));
+        const dir = out.clone().multiplyScalar(0.45).add(front ? V(0, 1, 0.25) : V(0, 0.55, 0).add(out.clone().multiplyScalar(-0.2)).add(V(0, 0, -0.55))).normalize();
+        const m = ell(H, M.hair, sp(y, th, 0.002 + hairT(y, th) * 0.55), [0.011, 0.02 + hash(i + 200) * 0.008, 0.0055]);
+        m.quaternion.setFromUnitVectors(Y_AXIS, dir);
+      }
+      // 头带：红色布带，额前一圈，脑后打结，两条长带尾随风飘动
+      add(H, sculpt(0.036, 0.058, 2, 64, (y, th) => headR(y, th) + 0.008 + (hairT(0.047, th) + 0.003) * ss((0.047 - hairline(th)) / 0.012 + 0.5), null, false), M.band);
+      ell(H, M.band, sp(0.045, Math.PI, 0.03), [0.02, 0.017, 0.013]);
       for (const s of [1, -1]) {
         const tail = new T.Group();
-        tail.position.set(...sp(0.042, Math.PI + s * 0.08, 0.022));
-        tail.rotation.set(0.75, s * 0.3, s * 0.3);
-        add(tail, new T.BoxGeometry(0.026, 0.1, 0.003), M.band, [0, -0.05, 0]);
-        const t2 = new T.Group(); t2.position.set(0, -0.1, 0); t2.rotation.set(-0.5, 0, s * 0.25); tail.add(t2);
-        add(t2, new T.BoxGeometry(0.024, 0.09, 0.003), M.band, [0, -0.045, 0]);
+        tail.position.set(...sp(0.042, Math.PI + s * 0.08, 0.032));
+        tail.rotation.set(1.0, s * 0.25, s * 0.18);
+        add(tail, new T.BoxGeometry(0.028, 0.14, 0.003), M.band, [0, -0.07, 0]);
+        const t2 = new T.Group(); t2.position.set(0, -0.14, 0); t2.rotation.set(-0.35, 0, s * 0.2); tail.add(t2);
+        add(t2, new T.BoxGeometry(0.026, 0.13, 0.003), M.band, [0, -0.065, 0]);
+        const t3 = new T.Group(); t3.position.set(0, -0.13, 0); t3.rotation.set(-0.3, 0, s * 0.25); t2.add(t3);
+        add(t3, new T.BoxGeometry(0.024, 0.12, 0.003), M.band, [0, -0.06, 0]);
         H.add(tail);
       }
 
