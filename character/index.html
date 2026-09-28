@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>人物形象预览 · 太极高手</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0f1c21; color: #dcece8; font: 14px/1.6 "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 8px 16px; border-bottom: 1px solid #24424a; }
+    header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    header small { color: #8fb0aa; margin-left: 8px; }
+    #stage { flex: 1; min-height: 0; position: relative; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+    .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 14px; border-top: 1px solid #24424a; }
+    .bar b { color: #8fb0aa; font-weight: 400; margin-right: 2px; }
+    button { font: inherit; color: #dcece8; background: #1a3037; border: 1px solid #24424a; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+    button.on { background: #5fc9b4; color: #062019; border-color: #5fc9b4; }
+    label { color: #8fb0aa; display: inline-flex; align-items: center; gap: 4px; }
+    input[type=range], input[type=checkbox] { accent-color: #5fc9b4; }
+    .sep { width: 1px; height: 18px; background: #24424a; margin: 0 4px; }
+  </style>
+</head>
+<body>
+  <header><h1>人物形象预览 <small>太极高手 · 白色无袖太极服 · 可调透明度（拖动画面旋转，滚轮缩放）</small></h1></header>
+  <main id="stage"></main>
+  <div class="bar" id="poses"><b>姿势</b></div>
+  <div class="bar">
+    <b>视角</b>
+    <button data-az="0" class="on">正面</button>
+    <button data-az="40">斜前</button>
+    <button data-az="90">侧面</button>
+    <button data-az="180">背面</button>
+    <label><input type="checkbox" id="spin"> 自动旋转</label>
+    <span class="sep"></span>
+    <label>透明度 <input type="range" id="opacity" min="0.2" max="1" step="0.05" value="1"></label>
+    <label title="关闭后可以看到肌肉线条"><input type="checkbox" id="suit" checked> 太极服</label>
+  </div>
+
+  <script src="../vendor/three.min.js"></script>
+  <script src="../v3/js/forms.js"></script>
+  <script src="js/master.js"></script>
+  <script>
+  (function () {
+    const T = THREE, Tj = window.Taiji, DEG = Math.PI / 180;
+    const stage = document.getElementById('stage');
+    const renderer = new T.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = T.PCFSoftShadowMap;
+    stage.appendChild(renderer.domElement);
+    const scene = new T.Scene();
+    scene.background = new T.Color(0x0f1c21);
+    const camera = new T.PerspectiveCamera(32, 1, 0.05, 50);
+    scene.add(new T.HemisphereLight(0xfff1e0, 0x223036, 0.75));
+    const key = new T.DirectionalLight(0xfff4e6, 1.35);
+    key.position.set(2.2, 4, 3); key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+    Object.assign(key.shadow.camera, { left: -2, right: 2, top: 2.5, bottom: -0.5, near: 0.5, far: 12 });
+    scene.add(key);
+    const rim = new T.DirectionalLight(0x9fd8ff, 0.8); rim.position.set(-2.5, 2.5, -3); scene.add(rim);
+    const fill = new T.DirectionalLight(0xffffff, 0.3); fill.position.set(-2, 1, 2.5); scene.add(fill);
+    const ground = new T.Mesh(new T.CircleGeometry(6, 64), new T.MeshStandardMaterial({ color: 0x16282e, roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    const grid = new T.GridHelper(8, 16, 0x2f555e, 0x223c42); grid.position.y = 0.002; scene.add(grid);
+
+    const fig = new Tj.Figure();
+    scene.add(fig.root);
+
+    // 从 24 式中取几个有代表性的定势
+    const keys = Tj.buildRoutine();
+    const F = Tj.FORMS;
+    const poses = [
+      ['预备势', keys[0].pose],
+      ['起势', keys[F[0].last].pose],
+      ['野马分鬃', keys[F[1].last].pose],
+      ['白鹤亮翅', keys[F[2].last].pose],
+      ['单鞭', keys[F[8].last].pose],
+      ['右蹬脚', keys[F[12].last].pose],
+      ['下势独立', keys[F[15].last].pose],
+      ['搬拦捶', keys[F[20].last].pose],
+    ];
+    let current = poses[2][1];
+    const bar = document.getElementById('poses');
+    poses.forEach(([name, P], i) => {
+      const b = document.createElement('button');
+      b.textContent = name;
+      if (i === 2) b.classList.add('on');
+      b.onclick = () => { current = P; bar.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+      bar.appendChild(b);
+    });
+
+    const cam = { az: 0, el: 8 * DEG, dist: 3.6, ty: 0.92 };
+    document.querySelectorAll('[data-az]').forEach((b) => (b.onclick = () => {
+      cam.az = +b.dataset.az * DEG;
+      document.querySelectorAll('[data-az]').forEach((x) => x.classList.toggle('on', x === b));
+    }));
+    document.getElementById('opacity').oninput = (e) => fig.setOpacity(+e.target.value);
+    document.getElementById('suit').onchange = (e) => fig.setSuit(e.target.checked);
+    const spin = document.getElementById('spin');
+
+    const el = renderer.domElement;
+    let drag = null;
+    el.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY]; el.setPointerCapture(e.pointerId); });
+    el.addEventListener('pointermove', (e) => {
+      if (!drag) return;
+      cam.az -= (e.clientX - drag[0]) * 0.008;
+      cam.el = Math.min(80 * DEG, Math.max(-5 * DEG, cam.el + (e.clientY - drag[1]) * 0.006));
+      drag = [e.clientX, e.clientY];
+    });
+    el.addEventListener('pointerup', () => (drag = null));
+    el.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist = Math.min(8, Math.max(0.6, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+
+    function resize() {
+      const w = stage.clientWidth, h = stage.clientHeight;
+      renderer.setSize(w, h, false);
+      camera.aspect = w / Math.max(1, h);
+      camera.updateProjectionMatrix();
+    }
+    new ResizeObserver(resize).observe(stage);
+    resize();
+
+    let last = performance.now();
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (spin.checked) cam.az += dt * 0.5;
+      const info = fig.apply(current);
+      const target = new T.Vector3(info.pelvis.x, cam.ty, info.pelvis.z);
+      const az = cam.az + info.yaw * DEG; // 以人物朝向为基准
+      camera.position.set(target.x + cam.dist * Math.sin(az) * Math.cos(cam.el), target.y + cam.dist * Math.sin(cam.el), target.z + cam.dist * Math.cos(az) * Math.cos(cam.el));
+      camera.lookAt(target);
+      key.target.position.copy(target); key.position.set(target.x + 2.2, 4, target.z + 3);
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    window.Preview = { fig, cam, poses, setPose: (i) => (current = poses[i][1]) };
+  })();
+  </script>
+</body>
+</html>
