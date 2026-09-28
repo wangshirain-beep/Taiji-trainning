@@ -1,4 +1,5 @@
 // 场景、视角控制、播放逻辑、语音讲解与界面。
+// 画面上不叠加字幕，讲到哪一步就在右侧高亮并自动滚动；可分层显示皮肤/肌肉/骨骼；有手部特写视角。
 (function () {
   const T = THREE;
   const Tj = window.Taiji;
@@ -46,10 +47,15 @@
     return n < 1e-4 ? b : v.map((x) => x / n);
   }
   function lerpHand(h0, h1, h2, h3, s, e) {
+    // 手型权重：掌、拳、勾手之间平滑过渡，手指逐渐弯曲或张开
+    const kw = { palm: 0, fist: 0, hook: 0 };
+    kw[h1.kind || 'palm'] += 1 - e;
+    kw[h2.kind || 'palm'] += e;
     return {
       p: [0, 1, 2].map((i) => cr(h0.p[i], h1.p[i], h2.p[i], h3.p[i], s)),
       palm: lerpVec(h1.palm, h2.palm, e), fin: lerpVec(h1.fin, h2.fin, e),
       kind: e < 0.5 ? h1.kind : h2.kind,
+      kw,
     };
   }
   function keyIndexAt(t) {
@@ -85,15 +91,18 @@
   const scene = new T.Scene();
   scene.background = new T.Color(0x0f1c21);
   scene.fog = new T.Fog(0x0f1c21, 9, 20);
-  const camera = new T.PerspectiveCamera(40, 1, 0.05, 60);
+  const camera = new T.PerspectiveCamera(40, 1, 0.03, 60);
 
-  scene.add(new T.HemisphereLight(0xdff6ff, 0x1c2a2e, 0.9));
-  const sun = new T.DirectionalLight(0xffffff, 0.8);
+  scene.add(new T.HemisphereLight(0xfff4e8, 0x1c2a2e, 0.85));
+  const sun = new T.DirectionalLight(0xffffff, 0.9);
   sun.position.set(2.5, 6, 3.5);
   sun.castShadow = true;
   sun.shadow.mapSize.set(1024, 1024);
   Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 3, bottom: -3, near: 0.5, far: 15 });
   scene.add(sun, sun.target);
+  const fill = new T.DirectionalLight(0xbfe6ff, 0.35);
+  fill.position.set(-3, 2, -3);
+  scene.add(fill);
 
   const ground = new T.Mesh(new T.CircleGeometry(12, 64), new T.MeshStandardMaterial({ color: 0x16282e, roughness: 1 }));
   ground.rotation.x = -Math.PI / 2;
@@ -151,14 +160,19 @@
   }
 
   // ---------- 视角 ----------
-  const VIEWS = { back: 180, front: 0, left: 90, right: -90 };
-  const cam = { az: 180 * DEG, el: 12 * DEG, dist: 3.4, follow: true, heading: 0, target: new T.Vector3(0, 0.9, 0), inited: false };
+  const VIEWS = { back: 180, front: 0, left: 90, right: -90, hands: 25 };
+  const cam = { az: 180 * DEG, el: 12 * DEG, dist: 3.4, follow: true, heading: 0, target: new T.Vector3(0, 0.9, 0), inited: false, focus: 'body' };
+  const bodyDist = () => (camera.aspect < 0.8 ? 4.8 : 3.4);
   function setView(name) {
     document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === name));
+    const wasHands = cam.focus === 'hands';
+    cam.focus = name === 'hands' ? 'hands' : 'body';
+    if (name === 'hands') cam.dist = 1.25;
+    else if (wasHands) cam.dist = bodyDist();
     if (name === 'top') { cam.el = 80 * DEG; return; }
     const rel = VIEWS[name] * DEG;
     cam.az = cam.follow ? rel : cam.heading * DEG + rel;
-    cam.el = 12 * DEG;
+    cam.el = (name === 'hands' ? 8 : 12) * DEG;
   }
   (function bindPointer() {
     const el = renderer.domElement;
@@ -172,29 +186,33 @@
       if (pts.size === 1) {
         cam.az -= (e.clientX - prev[0]) * 0.008;
         cam.el = Math.min(85 * DEG, Math.max(-5 * DEG, cam.el + (e.clientY - prev[1]) * 0.006));
-        document.querySelectorAll('[data-view]').forEach((b) => b.classList.remove('on'));
+        document.querySelectorAll('[data-view]').forEach((b) => b.classList.toggle('on', b.dataset.view === 'hands' && cam.focus === 'hands'));
       } else if (pts.size === 2) {
         const [a, b] = [...pts.values()];
         const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
-        if (pinch) cam.dist = Math.min(9, Math.max(1.5, cam.dist * pinch / d));
+        if (pinch) cam.dist = Math.min(9, Math.max(0.6, cam.dist * pinch / d));
         pinch = d;
       }
     });
     const up = (e) => { pts.delete(e.pointerId); pinch = 0; };
     el.addEventListener('pointerup', up);
     el.addEventListener('pointercancel', up);
-    el.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist = Math.min(9, Math.max(1.5, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+    el.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist = Math.min(9, Math.max(0.6, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
   })();
 
   function updateCamera(info, dt) {
     const mirror = fig.root.scale.x < 0 ? -1 : 1;
     const heading = info.yaw * mirror;
-    const tx = info.pelvis.x * mirror, tz = info.pelvis.z;
+    let tx = info.pelvis.x * mirror, ty = 0.95, tz = info.pelvis.z;
+    if (cam.focus === 'hands') { // 手部特写：镜头对准两手之间
+      const a = fig.J.wristL, b = fig.J.wristR;
+      tx = ((a.x + b.x) / 2) * mirror; ty = (a.y + b.y) / 2; tz = (a.z + b.z) / 2;
+    }
     const k = cam.inited ? 1 - Math.exp(-dt * 2.2) : 1;
     cam.heading += (heading - cam.heading) * k;
     cam.target.x += (tx - cam.target.x) * k;
+    cam.target.y += (ty - cam.target.y) * k;
     cam.target.z += (tz - cam.target.z) * k;
-    cam.target.y = 0.95;
     cam.inited = true;
     const az = cam.follow ? cam.heading * DEG + cam.az : cam.az;
     camera.position.set(
@@ -211,7 +229,7 @@
     renderer.setSize(w, h, false);
     camera.aspect = w / Math.max(1, h);
     camera.updateProjectionMatrix();
-    if (camera.aspect < 0.8) cam.dist = Math.max(cam.dist, 4.8); // 竖屏时拉远，保证全身可见
+    if (camera.aspect < 0.8 && cam.focus === 'body') cam.dist = Math.max(cam.dist, 4.8); // 竖屏时拉远，保证全身可见
   }
   new ResizeObserver(resize).observe(stage);
   resize();
@@ -276,7 +294,6 @@
     S.t = st.t0;
     S.stepEnd = st.t1;
     S.speechDone = false;
-    showCaption(st.say);
     highlightStep(j);
     Speech.say(st.say, () => { S.speechDone = true; });
   }
@@ -284,6 +301,7 @@
     const [t0, t1] = range();
     if (S.t >= t1 - 1e-3 || S.t < t0) S.t = t0;
     S.playing = true;
+    setStatus('');
     clearTrails();
     if (S.mode === 'form' && S.teach) beginStep(stepAt(S.form, S.t));
     else if (S.mode === 'all') { S.announced = -1; }
@@ -292,6 +310,7 @@
   function pause() {
     S.playing = false;
     Speech.stop();
+    markSpeaking(null);
     updateButtons();
   }
   function selectForm(i, keepPlaying) {
@@ -302,15 +321,15 @@
     S.step = -1;
     clearTrails();
     renderInfo();
-    showCaption(`第${f.idx + 1}式　${f.name}`);
+    setStatus('');
     if (keepPlaying && S.playing) play(); else { S.playing = false; updateButtons(); }
   }
   function finish() {
     if (S.loop) { S.t = range()[0]; play(); return; }
     S.playing = false;
     updateButtons();
-    if (S.mode === 'form') showCaption(`第${S.form.idx + 1}式「${S.form.name}」演示完毕。可点“下一式”继续学习，或打开“循环”反复练习。`);
-    else showCaption('全套二十四式演练完毕。');
+    if (S.mode === 'form') setStatus(`「${S.form.name}」演示完毕。可点“下一式”继续，或打开“循环”反复练习。`);
+    else setStatus('全套二十四式演练完毕。');
   }
 
   function tick(dt) {
@@ -359,11 +378,12 @@
       box.appendChild(b);
     });
   }
+  let lastStepHL = -1;
   function renderInfo() {
     const f = S.form;
     document.querySelectorAll('.form-item').forEach((b) => b.classList.toggle('on', +b.dataset.idx === f.idx));
     const cur = document.querySelector('.form-item.on');
-    if (cur) cur.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (cur) { const box = $('formList'); box.scrollTo({ top: cur.offsetTop - box.clientHeight / 2, left: cur.offsetLeft - box.clientWidth / 2 }); }
     $('formTitle').textContent = `第${f.idx + 1}式　${f.name}`;
     $('infoNum').textContent = `${f.group} · 第 ${f.idx + 1} / 24 式`;
     $('infoName').textContent = f.name;
@@ -378,19 +398,27 @@
     $('infoKey').textContent = f.key;
     $('infoBreath').textContent = f.breath;
     $('infoMind').textContent = f.mind;
+    lastStepHL = -1;
+    $('info').scrollTop = 0;
   }
-  let lastStepHL = -1;
+  // 讲到哪里，右侧就高亮到哪里，并自动滚动到可见位置（画面上不叠加字幕，以免遮挡人物）
+  function reveal(el) {
+    const box = $('info');
+    box.scrollTo({ top: Math.max(0, el.offsetTop - box.clientHeight * 0.25), behavior: 'smooth' });
+  }
+  function markSpeaking(el) {
+    document.querySelectorAll('#info .speaking').forEach((x) => x.classList.remove('speaking'));
+    if (el) { el.classList.add('speaking'); reveal(el); }
+  }
   function highlightStep(j) {
     if (j === lastStepHL) return;
     lastStepHL = j;
-    [...$('infoSteps').children].forEach((li, k) => li.classList.toggle('on', k === j));
+    [...$('infoSteps').children].forEach((li, k) => {
+      li.classList.toggle('on', k === j);
+      if (k === j) reveal(li);
+    });
   }
-  let lastCaption = '';
-  function showCaption(text) {
-    if (text === lastCaption) return;
-    lastCaption = text;
-    $('caption').textContent = text;
-  }
+  function setStatus(text) { $('status').textContent = text; $('status').hidden = !text; }
   function updateButtons() {
     $('btnPlay').textContent = S.playing ? '⏸ 暂停' : '▶ 播放';
     $('btnPlay').classList.toggle('playing', S.playing);
@@ -403,14 +431,7 @@
     const [t0, t1] = range();
     if (!scrubbing) $('scrub').value = Math.round(((S.t - t0) / (t1 - t0)) * 1000);
     $('time').textContent = `${fmt(Math.max(0, S.t - t0))} / ${fmt(t1 - t0)}`;
-    if (!(S.mode === 'form' && S.teach && S.playing)) {
-      const f = S.mode === 'all' ? S.form : S.form;
-      if (S.t > f.t0 + 1e-3 || S.playing) {
-        const j = stepAt(f, S.t);
-        highlightStep(j);
-        if (S.playing || scrubbing) showCaption(f.steps[j].say);
-      }
-    }
+    if (!(S.mode === 'form' && S.teach && S.playing) && (S.t > S.form.t0 + 1e-3 || S.playing)) highlightStep(stepAt(S.form, S.t));
   }
 
   $('btnPlay').onclick = () => (S.playing ? pause() : play());
@@ -420,7 +441,7 @@
     pause();
     S.mode = b.dataset.mode;
     if (S.mode === 'form') selectForm(S.form.idx, false);
-    else { S.t = 0; S.form = FORMS[0]; renderInfo(); showCaption('连贯演练：从预备势开始完整演示二十四式。'); }
+    else { S.t = 0; S.form = FORMS[0]; renderInfo(); setStatus('连贯演练：从预备势开始完整演示二十四式。'); }
     updateButtons();
   }));
   $('chkTeach').onchange = (e) => { S.teach = e.target.checked; if (S.playing) { pause(); play(); } };
@@ -443,16 +464,25 @@
     cam.follow = e.target.checked;
   };
   $('chkMirror').onchange = (e) => { fig.root.scale.x = e.target.checked ? -1 : 1; clearTrails(); };
-  $('chkBones').onchange = (e) => { fig.bones.visible = e.target.checked; };
+  $('chkSkin').onchange = (e) => fig.setLayer('skin', e.target.checked);
+  $('chkMuscle').onchange = (e) => fig.setLayer('muscle', e.target.checked);
+  $('chkBone').onchange = (e) => fig.setLayer('bone', e.target.checked);
+  $('chkTint').onchange = (e) => fig.setTint(e.target.checked);
   $('chkTrail').onchange = (e) => { trails.forEach((tr) => (tr.line.visible = e.target.checked)); clearTrails(); };
-  $('opacity').oninput = (e) => fig.setOpacity(+e.target.value);
+  $('opacity').oninput = (e) => fig.setSkinOpacity(+e.target.value);
   $('btnSpeakKey').onclick = () => {
     const f = S.form;
     if (S.playing) pause();
-    Speech.say(`${f.name}。动作要领：${f.key}呼吸：${f.breath}心法：${f.mind}`);
+    const parts = [['secKey', `${f.name}。动作要领：${f.key}`], ['secBreath', `呼吸：${f.breath}`], ['secMind', `心法：${f.mind}`]];
+    const next = (i) => {
+      if (i >= parts.length) { markSpeaking(null); return; }
+      markSpeaking($(parts[i][0]));
+      Speech.say(parts[i][1], () => next(i + 1));
+    };
+    next(0);
   };
-  $('btnStopVoice').onclick = () => Speech.stop();
-  $('btnGeneral').onclick = () => { if (S.playing) pause(); showCaption(Tj.GENERAL); Speech.say(Tj.GENERAL); };
+  $('btnStopVoice').onclick = () => { Speech.stop(); markSpeaking(null); };
+  $('btnGeneral').onclick = () => { if (S.playing) pause(); setStatus(Tj.GENERAL); Speech.say(Tj.GENERAL); };
   window.addEventListener('keydown', (e) => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (e.code === 'Space') { e.preventDefault(); $('btnPlay').click(); }
@@ -460,10 +490,11 @@
     else if (e.code === 'ArrowLeft') $('btnPrev').click();
   });
   trails.forEach((tr) => (tr.line.visible = false));
+  fig.setSkinOpacity(+$('opacity').value);
 
   buildList();
   selectForm(0, false);
-  showCaption('选择左侧招式，点击“播放”开始学习。拖动画面可旋转视角，滚轮或双指缩放。');
+  setStatus('点击“播放”开始学习。拖动画面可旋转视角，滚轮或双指缩放；点“手部特写”可看清掌、拳、勾手。');
   updateButtons();
 
   // ---------- 主循环 ----------

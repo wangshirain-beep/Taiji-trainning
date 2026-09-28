@@ -8,7 +8,7 @@
 </head>
 <body>
   <header class="top">
-    <h1>☯ 24式简化太极拳 <small>3D 半透明演示人教学</small></h1>
+    <h1>☯ 24式简化太极拳 <small>3D 人体演示教学</small></h1>
     <div class="modes">
       <button data-mode="form" class="on">单式教学</button>
       <button data-mode="all">连贯演练</button>
@@ -22,7 +22,7 @@
     <main class="stage" id="stage">
       <div class="overlay top-left">
         <div id="formTitle" class="form-title"></div>
-        <div class="legend"><i class="dot l"></i>左侧肢体　<i class="dot r"></i>右侧肢体</div>
+        <div class="legend"><i class="dot l"></i>左手左脚　<i class="dot r"></i>右手右脚</div>
       </div>
       <div class="overlay top-right views">
         <button data-view="back" class="on" title="从背后看，与演示人同向，最适合跟练">背面</button>
@@ -30,25 +30,23 @@
         <button data-view="left" title="从演示人左侧看">左侧</button>
         <button data-view="right" title="从演示人右侧看">右侧</button>
         <button data-view="top" title="俯视看步法">俯视</button>
+        <button data-view="hands" title="镜头拉近到双手，看清掌、拳、勾手和手指">手部特写</button>
       </div>
-      <div class="caption" id="caption"></div>
     </main>
 
-    <section class="info" aria-label="动作讲解">
+    <section class="info" id="info" aria-label="动作讲解">
       <div class="info-num" id="infoNum"></div>
       <h2 id="infoName"></h2>
+      <div class="status" id="status" hidden></div>
       <div class="info-actions">
         <button id="btnSpeakKey">🔊 朗读要领·呼吸·心法</button>
         <button id="btnStopVoice" class="ghost">停止朗读</button>
       </div>
-      <h3>动作做法 <small>（点击某一步可跳转）</small></h3>
+      <h3>动作做法 <small>（讲到哪一步就高亮哪一步；点击可跳转）</small></h3>
       <ol id="infoSteps" class="steps"></ol>
-      <h3>动作要领</h3>
-      <p id="infoKey"></p>
-      <h3>呼吸</h3>
-      <p id="infoBreath"></p>
-      <h3>心法</h3>
-      <p id="infoMind"></p>
+      <div class="sec" id="secKey"><h3>动作要领</h3><p id="infoKey"></p></div>
+      <div class="sec" id="secBreath"><h3>呼吸</h3><p id="infoBreath"></p></div>
+      <div class="sec" id="secMind"><h3>心法</h3><p id="infoMind"></p></div>
     </section>
   </div>
 
@@ -76,9 +74,13 @@
       <span class="sep"></span>
       <label title="视角随演示人转身而转动，始终保持相对位置"><input type="checkbox" id="chkFollow" checked> 视角跟随转身</label>
       <label title="左右镜像，面对面跟练时像照镜子"><input type="checkbox" id="chkMirror"> 镜像</label>
-      <label><input type="checkbox" id="chkBones" checked> 骨架</label>
       <label><input type="checkbox" id="chkTrail"> 手部轨迹</label>
-      <label>透明度 <input type="range" id="opacity" min="0.1" max="0.8" step="0.05" value="0.3"></label>
+      <span class="sep"></span>
+      <label><input type="checkbox" id="chkSkin" checked> 皮肤</label>
+      <label><input type="checkbox" id="chkMuscle" checked> 肌肉</label>
+      <label><input type="checkbox" id="chkBone" checked> 骨骼</label>
+      <label title="左侧手脚偏蓝、右侧手脚偏橙，帮助分清左右"><input type="checkbox" id="chkTint" checked> 左右着色</label>
+      <label>皮肤透明度 <input type="range" id="opacity" min="0.05" max="0.8" step="0.05" value="0.2"></label>
     </div>
     <div id="voiceWarn" class="warn" hidden>未检测到中文（普通话）语音包：文字讲解照常显示。如需语音，请使用 Chrome / Edge 浏览器，或在系统设置中安装“中文（中国大陆）”语音。</div>
   </footer>
