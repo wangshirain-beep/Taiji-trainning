@@ -16,7 +16,7 @@
 
   const COL = {
     skin: 0xc68a5e, suit: 0xf3efe6, trim: 0x1c1a1a, sash: 0x151515, hair: 0x111111,
-    band: 0x2b2b2b, shoe: 0x141414, sole: 0xe8e4da, lip: 0x8e4b3c, iris: 0x2a1a12,
+    band: 0xb3161b, shoe: 0x141414, sole: 0xe8e4da, lip: 0x8e4b3c, iris: 0x2a1a12,
   };
   const COLORS = { L: 0x4db8ff, R: 0xff9f4a }; // 手部轨迹颜色（与软件一致）
 
@@ -170,6 +170,8 @@
         iris: mk(COL.iris, 0.3),
         dark: mk(0x140c08, 0.8),
         lip: mk(COL.lip, 0.6),
+        earIn: mk(0x9a6040, 0.6),
+        wrist: mk(0x1e1e1e, 0.8),
       };
       const seg = () => { const g = new T.Group(); this.root.add(g); return g; };
       const add = (parent, geo, mat, pos, scale, rot, layer) => {
@@ -190,9 +192,6 @@
       // ---------- 躯干（肌肉雕塑）----------
       add(this.gChest, sculpt(0.0, 0.5, 60, 48, torsoR, null, true), M.skin);
       add(this.gChest, sculpt(0.43, 0.6, 10, 24, (y) => table([[0.43, 0.088], [0.47, 0.078], [0.53, 0.068], [0.58, 0.066], [0.6, 0.03]])(y), null, true), M.skin, [0, 0, -0.008]);
-      for (const s of [1, -1]) { // 斜方肌到肩的斜坡
-        ell(this.gChest, M.skin, [s * 0.105, 0.452, -0.022], [0.11, 0.042, 0.07], [0, 0, s * 0.36]);
-      }
       add(this.gPelvis, sculpt(-0.16, 0.08, 20, 36, (y, th) => ellipseR(table([[-0.16, 0.03], [-0.12, 0.13], [-0.05, 0.165], [0.03, 0.15], [0.08, 0.135]])(y), table([[-0.16, 0.03], [-0.12, 0.1], [-0.05, 0.12], [0.03, 0.105], [0.08, 0.1]])(y), th), null, true), M.skin, [0, 0, -0.01]);
 
       // ---------- 太极服：对襟无袖上衣 ----------
@@ -227,59 +226,72 @@
       // 裤腰
       add(this.gPelvis, sculpt(-0.17, 0.07, 18, 48, (y, th) => ellipseR(table([[-0.17, 0.05], [-0.13, 0.15], [-0.05, 0.185], [0.07, 0.165]])(y), table([[-0.17, 0.05], [-0.13, 0.12], [-0.05, 0.14], [0.07, 0.13]])(y), th) + 0.005 * Math.sin(th * 8 + y * 40), null, true), M.suit, [0, 0, -0.01], null, null, 'suit');
 
-      // ---------- 头部 ----------
+      // ---------- 头部：一整块雕塑（圆颅、两侧较平、下颌收成方下巴，不鼓腮）----------
       const H = this.gHead;
-      ell(H, M.skin, [0, 0.03, -0.01], [0.082, 0.094, 0.098]); // 颅
-      ell(H, M.skin, [0, -0.035, 0.018], [0.064, 0.074, 0.08]); // 面
-      ell(H, M.skin, [0, -0.086, 0.05], [0.036, 0.027, 0.03]); // 方下巴
+      const hA = table([[-0.126, 0.004], [-0.115, 0.03], [-0.095, 0.046], [-0.07, 0.06], [-0.04, 0.069], [-0.01, 0.075], [0.03, 0.079], [0.08, 0.074], [0.11, 0.052], [0.126, 0.02], [0.132, 0.004]]);
+      const hF = table([[-0.126, 0.004], [-0.118, 0.05], [-0.1, 0.083], [-0.075, 0.088], [-0.05, 0.094], [-0.02, 0.099], [0.01, 0.096], [0.035, 0.1], [0.08, 0.088], [0.11, 0.06], [0.126, 0.025], [0.132, 0.004]]);
+      const hB = table([[-0.126, 0.004], [-0.11, 0.02], [-0.08, 0.042], [-0.05, 0.07], [-0.02, 0.09], [0.02, 0.1], [0.07, 0.096], [0.11, 0.065], [0.126, 0.028], [0.132, 0.004]]);
+      const headR = (y, th) => {
+        let r = ellipseR(hA(y), Math.cos(th) >= 0 ? hF(y) : hB(y), th);
+        r -= 0.007 * gauss(y, 0.012, 0.013) * (gaussA(th, 0.36, 0.17) + gaussA(th, -0.36, 0.17)); // 眼窝
+        r += 0.005 * gauss(y, 0.034, 0.009) * gaussA(th, 0, 0.55); // 眉弓
+        r += 0.003 * gauss(y, -0.005, 0.015) * (gaussA(th, 0.85, 0.25) + gaussA(th, -0.85, 0.25)); // 颧骨（轻微）
+        r += 0.004 * gauss(y, -0.085, 0.012) * (gaussA(th, 0.9, 0.3) + gaussA(th, -0.9, 0.3)); // 下颌线
+        return r;
+      };
+      const sp = (y, th, off) => { const r = headR(y, th) + (off || 0); return [r * Math.sin(th), y, r * Math.cos(th)]; };
+      add(H, sculpt(-0.126, 0.132, 64, 48, headR, null, true), M.skin);
       for (const s of [1, -1]) {
-        ell(H, M.skin, [s * 0.045, -0.062, 0.0], [0.02, 0.026, 0.036]); // 下颌角
-        ell(H, M.skin, [s * 0.083, 0.0, -0.008], [0.013, 0.028, 0.02]); // 耳
-        ell(H, M.white, [s * 0.031, 0.012, 0.088], [0.016, 0.0075, 0.006]); // 眼白（细长，眼神坚毅）
-        add(H, new T.CircleGeometry(0.0062, 18), M.iris, [s * 0.03, 0.0115, 0.0942]);
-        add(H, new T.CircleGeometry(0.0018, 8), M.white, [s * 0.028, 0.0135, 0.0945]);
-        add(H, new T.BoxGeometry(0.032, 0.0032, 0.004), M.dark, [s * 0.031, 0.0195, 0.093], null, [0, 0, s * 0.14]); // 上眼线
-        add(H, new T.BoxGeometry(0.034, 0.009, 0.007), M.hair, [s * 0.033, 0.036, 0.096], null, [0, 0, s * 0.26]); // 浓眉，内低外高
+        const e = s * 0.36;
+        ell(H, M.white, sp(0.012, e, 0.001), [0.016, 0.0075, 0.006], [0, e, 0, 'YXZ']); // 眼白（细长，眼神坚毅）
+        add(H, new T.CircleGeometry(0.0062, 18), M.iris, sp(0.0115, s * 0.35, 0.0065), null, [0, s * 0.35, 0, 'YXZ']);
+        add(H, new T.CircleGeometry(0.0018, 8), M.white, sp(0.0135, s * 0.33, 0.007), null, [0, s * 0.33, 0, 'YXZ']);
+        add(H, new T.BoxGeometry(0.032, 0.0032, 0.004), M.dark, sp(0.0195, e, 0.005), null, [0, e, s * 0.14, 'YXZ']); // 上眼线
+        add(H, new T.BoxGeometry(0.036, 0.009, 0.008), M.hair, sp(0.036, s * 0.34, 0.006), null, [0, s * 0.34, s * 0.26, 'YXZ']); // 浓眉，内低外高
+        // 耳朵：贴着头侧、略靠后，外耳轮 + 耳窝
+        const ea = s * (Math.PI / 2 + 0.14);
+        const ear = new T.Group();
+        ear.position.set(...sp(-0.004, ea, 0.002));
+        ear.rotation.set(0, ea - s * Math.PI / 2, s * 0.08);
+        H.add(ear);
+        ell(ear, M.skin, [s * 0.004, 0, 0], [0.0065, 0.03, 0.019]);
+        ell(ear, M.earIn, [s * 0.008, 0.002, 0.002], [0.003, 0.018, 0.011]);
       }
-      ell(H, M.skin, [0, 0.03, 0.082], [0.058, 0.011, 0.012]); // 眉弓
-      const nose = new T.ConeGeometry(0.015, 0.042, 4);
+      const nose = new T.ConeGeometry(0.016, 0.042, 4);
       nose.rotateY(Math.PI / 4);
       nose.rotateX(Math.PI / 2 + 0.45);
-      add(H, nose, M.skin, [0, -0.012, 0.102]);
-      ell(H, M.skin, [0, -0.028, 0.1], [0.017, 0.01, 0.012]); // 鼻头
-      add(H, new T.BoxGeometry(0.03, 0.0042, 0.004), M.lip, [0, -0.057, 0.098]);
-      add(H, new T.BoxGeometry(0.02, 0.003, 0.003), M.dark, [0, -0.064, 0.095]); // 下唇阴影
-      // 头发：短而硬的黑色刺猬头，向上向后
-      add(H, new T.SphereGeometry(1, 24, 14, 0, TAU, 0, 1.5), M.hair, [0, 0.036, -0.013], [0.087, 0.1, 0.103], [-0.2, 0, 0]);
-      const spike = new T.ConeGeometry(0.013, 0.045, 5);
-      spike.translate(0, 0.0225, 0);
-      const hc = V(0, 0.035, -0.015);
-      const place = (theta, phi, len, sweep) => {
-        const n = V(Math.sin(theta) * Math.sin(phi), Math.cos(theta), Math.sin(theta) * Math.cos(phi));
-        const p = hc.clone().add(V(n.x * 0.082, n.y * 0.095, n.z * 0.098));
-        const m = add(H, spike, M.hair, [p.x, p.y, p.z], [1, len, 1]);
-        m.quaternion.setFromUnitVectors(Y_AXIS, n.clone().add(sweep).normalize());
+      add(H, nose, M.skin, [0, -0.01, headR(-0.01, 0) + 0.004]);
+      ell(H, M.skin, [0, -0.029, headR(-0.029, 0) + 0.003], [0.012, 0.009, 0.01]); // 鼻头
+      for (const s of [1, -1]) ell(H, M.skin, [s * 0.011, -0.033, headR(-0.033, 0) + 0.001], [0.008, 0.007, 0.008]); // 鼻翼
+      add(H, new T.BoxGeometry(0.032, 0.0042, 0.004), M.lip, [0, -0.058, headR(-0.058, 0) + 0.001]);
+      add(H, new T.BoxGeometry(0.02, 0.003, 0.003), M.dark, [0, -0.065, headR(-0.065, 0)]); // 下唇阴影
+      // 头发：短而硬的黑色刺猬头，前面向上竖起，两侧和后面向后，发际线自然
+      const hairline = (th) => 0.058 - 0.118 * Math.pow((1 - Math.cos(th)) / 2, 1.3);
+      add(H, sculpt(-0.075, 0.14, 90, 128, (y, th) => headR(y, th) + 0.007 + 0.003 * Math.sin(th * 11 + y * 70), (y, th) => y > hairline(th), false), M.hair);
+      const spike = new T.ConeGeometry(0.012, 0.05, 5);
+      spike.translate(0, 0.025, 0);
+      const spikeAt = (y, th, len, sweep) => {
+        const m = add(H, spike, M.hair, sp(y, th, 0.004), [1, len, 1]);
+        const up = gauss(y, 0.132, 0.06);
+        m.quaternion.setFromUnitVectors(Y_AXIS, V(Math.sin(th) * (1 - up), 0.4 + up, Math.cos(th) * (1 - up)).add(sweep).normalize());
       };
-      ell(H, M.hair, [0, 0.005, -0.045], [0.084, 0.08, 0.07]); // 后脑头发
-      place(0.05, 0, 1.1, V(0, 1, -0.1));
-      for (let i = 0; i < 8; i++) place(0.32, (i / 8) * TAU + 0.2, 1.1, V(0, 1.0, -0.2));
-      for (let i = 0; i < 13; i++) place(0.68, (i / 13) * TAU, 1.0, V(0, 0.8, -0.35));
-      for (let i = 0; i < 12; i++) place(1.05, Math.PI * 0.4 + (i / 11) * Math.PI * 1.2, 0.85, V(0, 0.35, -0.6));
-      for (let i = 0; i < 7; i++) place(1.35, Math.PI * 0.6 + (i / 6) * Math.PI * 0.8, 0.7, V(0, -0.2, -0.7));
-      // 头带：深色布带，脑后打结，两条带尾
-      const band = new T.TorusGeometry(1, 0.085, 6, 40);
-      band.rotateX(Math.PI / 2);
-      add(H, band, M.band, [0, 0.05, -0.008], [0.088, 0.1, 0.103], [0.12, 0, 0]);
-      ell(H, M.band, [0, 0.04, -0.106], [0.018, 0.015, 0.012]);
+      spikeAt(0.13, 0, 1.1, V(0, 1, -0.2));
+      for (let i = 0; i < 8; i++) spikeAt(0.118, (i / 8) * TAU, 1.1, V(0, 0.9, -0.3));
+      for (let i = 0; i < 12; i++) spikeAt(0.1, (i / 12) * TAU + 0.26, 1.0, V(0, 0.75, -0.45));
+      for (let i = 0; i < 14; i++) { const th = (i / 14) * TAU; const fr = Math.abs(wrap(th)) < 0.7; spikeAt(0.078, th, fr ? 1.05 : 0.85, fr ? V(0, 1.1, 0.15) : V(0, 0.2, -0.6)); }
+      for (let i = 0; i < 9; i++) spikeAt(0.066, Math.PI * 0.6 + (i / 8) * Math.PI * 0.8, 0.7, V(0, 0.1, -0.7));
+      for (let i = 0; i < 7; i++) spikeAt(0.012, Math.PI * 0.7 + (i / 6) * Math.PI * 0.6, 0.5, V(0, -0.6, -0.6));
+      // 头带：红色布带，额前一圈，脑后打结，两条带尾
+      add(H, sculpt(0.036, 0.058, 2, 48, (y, th) => headR(y, th) + 0.012, null, false), M.band);
+      ell(H, M.band, sp(0.045, Math.PI, 0.02), [0.018, 0.015, 0.012]);
       for (const s of [1, -1]) {
         const tail = new T.Group();
-        tail.position.set(s * 0.008, 0.036, -0.11);
+        tail.position.set(...sp(0.042, Math.PI + s * 0.08, 0.022));
         tail.rotation.set(0.75, s * 0.3, s * 0.3);
-        const a = add(tail, new T.BoxGeometry(0.026, 0.1, 0.003), M.band, [0, -0.05, 0]);
+        add(tail, new T.BoxGeometry(0.026, 0.1, 0.003), M.band, [0, -0.05, 0]);
         const t2 = new T.Group(); t2.position.set(0, -0.1, 0); t2.rotation.set(-0.5, 0, s * 0.25); tail.add(t2);
         add(t2, new T.BoxGeometry(0.024, 0.09, 0.003), M.band, [0, -0.045, 0]);
         H.add(tail);
-        void a;
       }
 
       // ---------- 四肢 ----------
@@ -308,7 +320,7 @@
           r += 0.008 * gauss(y, 0.08, 0.06) * gaussA(th, -thLat * 0.4, 0.8);
           return r * (1 - 0.12 * Math.cos(2 * th) * gauss(y, 0.2, 0.06));
         }, null, true), M.skin);
-        add(g.fore, sculpt(0.19, 0.24, 3, 24, () => 0.04, null, false), M.band, null, null, null, 'suit'); // 护腕
+        add(g.fore, sculpt(0.19, 0.24, 3, 24, () => 0.04, null, false), M.wrist, null, null, null, 'suit'); // 护腕
         // 大腿、小腿：宽松太极裤（灯笼裤）
         add(g.thigh, sculpt(-0.06, 0.5, 30, 36, (y, th) => table([[-0.06, 0.07], [-0.03, 0.105], [0.05, 0.118], [0.25, 0.108], [0.42, 0.098], [0.5, 0.09]])(y) + 0.006 * Math.sin(th * 5 + y * 22), null, true), M.suit, null, null, null, 'suit');
         add(g.shin, sculpt(-0.06, 0.44, 30, 36, (y, th) => table([[-0.06, 0.088], [0.05, 0.098], [0.25, 0.092], [0.35, 0.082], [0.39, 0.058], [0.42, 0.048], [0.44, 0.045]])(y) + 0.006 * Math.sin(th * 6 + y * 25), null, true), M.suit, null, null, null, 'suit');
