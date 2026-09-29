@@ -1,0 +1,241 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>太极武者 · VRoid 模型预览</title>
+  <style>
+    html, body { margin: 0; height: 100%; background: #0f1c21; color: #dcece8; font: 14px/1.6 "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+    header { padding: 8px 16px; border-bottom: 1px solid #24424a; }
+    header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+    header small { color: #8fb0aa; margin-left: 8px; }
+    #stage { flex: 1; min-height: 0; position: relative; }
+    #stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+    #msg { position: absolute; left: 16px; top: 12px; color: #f0b35a; }
+    .bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 8px 14px; border-top: 1px solid #24424a; }
+    .bar b { color: #8fb0aa; font-weight: 400; margin-right: 2px; }
+    button { font: inherit; color: #dcece8; background: #1a3037; border: 1px solid #24424a; border-radius: 8px; padding: 4px 10px; cursor: pointer; }
+    button.on { background: #5fc9b4; color: #062019; border-color: #5fc9b4; }
+    label { color: #8fb0aa; display: inline-flex; align-items: center; gap: 4px; }
+    input[type=range], input[type=checkbox] { accent-color: #5fc9b4; }
+    .sep { width: 1px; height: 18px; background: #24424a; margin: 0 4px; }
+  </style>
+</head>
+<body>
+  <header><h1>太极武者 <small>VRoid 模型 · 用 24 式动作数据驱动（拖动画面旋转，滚轮缩放）</small></h1></header>
+  <main id="stage"><div id="msg">正在加载模型（约 14MB）…</div></main>
+  <div class="bar" id="forms"><b>招式</b></div>
+  <div class="bar">
+    <button id="play" class="on">⏸ 暂停</button>
+    <b>视角</b>
+    <button data-az="0" class="on">正面</button>
+    <button data-az="40">斜前</button>
+    <button data-az="90">侧面</button>
+    <button data-az="180">背面</button>
+    <button id="close">近景</button>
+    <span class="sep"></span>
+    <label>透明度 <input type="range" id="opacity" min="0.2" max="1" step="0.05" value="1"></label>
+  </div>
+
+  <script src="../vendor/three.min.js"></script>
+  <script src="../vendor/GLTFLoader.js"></script>
+  <script src="../vendor/three-vrm.min.js"></script>
+  <script src="../v3/js/figure.js"></script>
+  <script src="../v3/js/forms.js"></script>
+  <script>
+  (function () {
+    const T = THREE, Tj = window.Taiji, VRM = window.THREE_VRM, DEG = Math.PI / 180;
+    const stage = document.getElementById('stage'), msg = document.getElementById('msg');
+
+    // ---------- 场景 ----------
+    const renderer = new T.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+    renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2));
+    renderer.outputEncoding = T.sRGBEncoding;
+    renderer.shadowMap.enabled = true;
+    stage.appendChild(renderer.domElement);
+    const scene = new T.Scene();
+    scene.background = new T.Color(0x0f1c21);
+    const camera = new T.PerspectiveCamera(30, 1, 0.05, 50);
+    scene.add(new T.HemisphereLight(0xffffff, 0x334046, 0.6));
+    const key = new T.DirectionalLight(0xffffff, 1.0);
+    key.position.set(1.5, 3, 2.5); key.castShadow = true; key.shadow.mapSize.set(2048, 2048);
+    Object.assign(key.shadow.camera, { left: -2, right: 2, top: 2.5, bottom: -0.5, near: 0.5, far: 12 });
+    scene.add(key, key.target);
+    const ground = new T.Mesh(new T.CircleGeometry(8, 64), new T.MeshStandardMaterial({ color: 0x16282e, roughness: 1 }));
+    ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true; scene.add(ground);
+    const grid = new T.GridHelper(10, 20, 0x2f555e, 0x223c42); grid.position.y = 0.002; scene.add(grid);
+
+    // ---------- 动作数据：沿用软件里的 24 式关键帧 ----------
+    const keys = Tj.buildRoutine();
+    let acc = 0; keys.forEach((k) => { k.t *= 1.25; acc += k.t; k.T = acc; });
+    const FORMS = Tj.FORMS;
+    FORMS.forEach((f) => { f.t0 = keys[f.first - 1].T; f.t1 = keys[f.last].T; });
+    const lerp = (a, b, s) => a + (b - a) * s, smooth = (s) => s * s * (3 - 2 * s);
+    const cr = (p0, p1, p2, p3, s) => { const s2 = s * s, s3 = s2 * s; return 0.5 * (2 * p1 + (p2 - p0) * s + (2 * p0 - 5 * p1 + 4 * p2 - p3) * s2 + (3 * p1 - p0 - 3 * p2 + p3) * s3); };
+    const lerpFoot = (a, b, s) => { const e = smooth(s), d = Math.hypot(b.x - a.x, b.z - a.z), arc = d > 0.03 ? Math.sin(Math.PI * e) * Math.min(0.1, 0.04 + d * 0.12) : 0; return { x: lerp(a.x, b.x, e), z: lerp(a.z, b.z, e), yaw: lerp(a.yaw, b.yaw, e), lift: lerp(a.lift, b.lift, e) + arc, pitch: lerp(a.pitch, b.pitch, e) }; };
+    const lerpVec = (a, b, e) => { const v = [0, 1, 2].map((i) => lerp(a[i], b[i], e)); const n = Math.hypot(...v); return n < 1e-4 ? b : v.map((x) => x / n); };
+    const lerpHand = (h0, h1, h2, h3, s, e) => { const kw = { palm: 0, fist: 0, hook: 0 }; kw[h1.kind || 'palm'] += 1 - e; kw[h2.kind || 'palm'] += e; return { p: [0, 1, 2].map((i) => cr(h0.p[i], h1.p[i], h2.p[i], h3.p[i], s)), palm: lerpVec(h1.palm, h2.palm, e), fin: lerpVec(h1.fin, h2.fin, e), kind: h2.kind, kw }; };
+    function sample(t) {
+      let i = 0; while (i < keys.length - 1 && keys[i + 1].T <= t) i++;
+      if (i >= keys.length - 1) return keys[keys.length - 1].pose;
+      const a = keys[i].pose, b = keys[i + 1].pose, s = Math.min(1, (t - keys[i].T) / keys[i + 1].t), e = 0.4 * s + 0.6 * smooth(s);
+      const p0 = keys[Math.max(0, i - 1)].pose, p3 = keys[Math.min(keys.length - 1, i + 2)].pose;
+      const P = { lf: lerpFoot(a.lf, b.lf, s), rf: lerpFoot(a.rf, b.rf, s) };
+      for (const k of ['w', 'h', 'yaw', 'waist', 'lean', 'look']) P[k] = lerp(a[k], b[k], e);
+      P.lh = lerpHand(p0.lh, a.lh, b.lh, p3.lh, s, e); P.rh = lerpHand(p0.rh, a.rh, b.rh, p3.rh, s, e);
+      return P;
+    }
+
+    // ---------- 把姿势转成 VRM 骨骼旋转 ----------
+    // 先用软件里的人体求解器算出各关节位置和朝向，再把每根骨头"对准"同样的方向。
+    const solver = new Tj.Figure();
+    const SHAPES = {
+      palm: { f: [[6, 8, 5], [5, 7, 5], [6, 8, 5], [8, 10, 6]], th: [5, 5, 5] },
+      fist: { f: [[85, 95, 55], [88, 100, 55], [88, 100, 55], [85, 95, 55]], th: [30, 35, 30] },
+      hook: { f: [[40, 30, 20], [35, 30, 20], [35, 30, 20], [40, 30, 20]], th: [20, 20, 15] },
+    };
+    const FINGERS = ['Index', 'Middle', 'Ring', 'Little'], SEG = ['Proximal', 'Intermediate', 'Distal'];
+    const THUMB = ['ThumbMetacarpal', 'ThumbProximal', 'ThumbDistal'];
+    const V = (x, y, z) => new T.Vector3(x, y, z), _m = new T.Matrix4(), _q = new T.Quaternion();
+    const basisQ = (X, Y, Z) => new T.Quaternion().setFromRotationMatrix(_m.makeBasis(X, Y, Z));
+    const orth = (v, axis) => { const r = v.clone().addScaledVector(axis, -v.dot(axis)); return r.lengthSq() < 1e-8 ? null : r.normalize(); };
+    let vrm = null, rig = null;
+
+    function measure() {
+      vrm.humanoid.resetNormalizedPose();
+      vrm.scene.updateMatrixWorld(true);
+      const n = (b) => vrm.humanoid.getNormalizedBoneNode(b);
+      const wp = (b) => n(b).getWorldPosition(V(0, 0, 0));
+      const leg = wp('leftUpperLeg').distanceTo(wp('leftLowerLeg')) + wp('leftLowerLeg').distanceTo(wp('leftFoot'));
+      rig = { n, k: leg / 0.87, hipRest: n('hips').position.clone(), footY: wp('leftFoot').y };
+    }
+    function setWorld(name, q) {
+      const node = rig.n(name);
+      if (!node) return;
+      node.parent.getWorldQuaternion(_q);
+      node.quaternion.copy(_q.invert().multiply(q));
+      node.updateMatrixWorld(true);
+    }
+    function applyPose(P) {
+      const S = solver, J = S.J, n = rig.n;
+      S.apply(P);
+      const hips = n('hips');
+      hips.position.set(rig.hipRest.x + J.pelvis.x * rig.k, rig.hipRest.y + (J.pelvis.y - 0.95) * rig.k, rig.hipRest.z + J.pelvis.z * rig.k);
+      setWorld('hips', S.gPelvis.quaternion);
+      setWorld('spine', S.gWaist.quaternion);
+      setWorld('chest', S.gChest.quaternion);
+      setWorld('upperChest', S.gChest.quaternion);
+      setWorld('neck', S.gChest.quaternion);
+      setWorld('head', S.gHead.quaternion);
+      for (const side of ['L', 'R']) {
+        const s = side === 'L' ? 1 : -1, pre = side === 'L' ? 'left' : 'right';
+        const g = S.limb[side];
+        const sh = J['sh' + side], el = J['elbow' + side], wr = J['wrist' + side];
+        const front = S.pArm[side].clone().negate();
+        const hq = g.hand.quaternion;
+        const fin = V(0, 1, 0).applyQuaternion(hq), palm = V(0, 0, 1).applyQuaternion(hq);
+        setWorld(pre + 'Shoulder', S.gChest.quaternion);
+        const arm = (bone, d, ref) => { const X = d.clone().normalize().multiplyScalar(s); const Z = orth(ref, X) || orth(V(0, 0, 1), X); setWorld(bone, basisQ(X, Z.clone().cross(X), Z)); };
+        arm(pre + 'UpperArm', el.clone().sub(sh), front);
+        // 前臂的扭转取上臂和手掌之间，手腕处不会拧麻花
+        const hX = fin.clone().multiplyScalar(s), hY = (orth(palm.clone().negate(), hX) || V(0, 1, 0)), hZ = hX.clone().cross(hY);
+        arm(pre + 'LowerArm', wr.clone().sub(el), front.clone().add(hZ).normalize());
+        setWorld(pre + 'Hand', basisQ(hX, hY, hZ));
+        // 手指：按掌、拳、勾手的权重弯曲
+        const kw = (s > 0 ? P.lh : P.rh).kw || { [(s > 0 ? P.lh : P.rh).kind || 'palm']: 1 };
+        const curl = [0, 1, 2, 3].map(() => [0, 0, 0]), th = [0, 0, 0];
+        for (const k in kw) { if (!kw[k]) continue; SHAPES[k].f.forEach((row, i) => row.forEach((a, j) => (curl[i][j] += a * kw[k]))); SHAPES[k].th.forEach((a, j) => (th[j] += a * kw[k])); }
+        FINGERS.forEach((f, i) => SEG.forEach((sg, j) => { const node = n(pre + f + sg); if (node) node.quaternion.setFromAxisAngle(V(0, 0, 1), -s * curl[i][j] * DEG); }));
+        THUMB.forEach((b, j) => { const node = n(pre + b); if (node) node.quaternion.setFromEuler(new T.Euler(0, s * th[j] * 0.8 * DEG, -s * th[j] * 0.5 * DEG)); });
+        // 腿
+        const hip = J['hip' + side], kn = J['knee' + side], an = J['ankle' + side];
+        const leg = (bone, d) => { const Y = d.clone().normalize().negate(); const Z = orth(S.pLeg[side], Y) || orth(V(0, 0, 1), Y); setWorld(bone, basisQ(Y.clone().cross(Z), Y, Z)); };
+        leg(pre + 'UpperLeg', kn.clone().sub(hip));
+        leg(pre + 'LowerLeg', an.clone().sub(kn));
+        setWorld(pre + 'Foot', g.foot.quaternion);
+      }
+      // 贴地：让着地的那只脚落在地面上
+      vrm.scene.updateMatrixWorld(true);
+      const low = P.lf.lift < P.rf.lift ? 'leftFoot' : 'rightFoot';
+      const J0 = low === 'leftFoot' ? J.ankleL : J.ankleR;
+      const cur = n(low).getWorldPosition(V(0, 0, 0)).y;
+      hips.position.y += rig.footY + (J0.y - 0.08) * rig.k - cur;
+    }
+
+    // ---------- 加载模型 ----------
+    const loader = new T.GLTFLoader();
+    loader.register((parser) => new VRM.VRMLoaderPlugin(parser));
+    loader.load('../models/taiji-warrior.vrm', (gltf) => {
+      vrm = gltf.userData.vrm;
+      VRM.VRMUtils.removeUnnecessaryVertices(gltf.scene);
+      scene.add(vrm.scene);
+      vrm.scene.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.frustumCulled = false; } });
+      measure();
+      msg.textContent = '';
+    }, (e) => { if (e.total) msg.textContent = `正在加载模型… ${Math.round((e.loaded / e.total) * 100)}%`; },
+    (err) => { msg.textContent = '模型加载失败：' + err.message + '（请用网址方式打开本页，双击打开时浏览器不允许读取本地模型文件）'; });
+
+    function setOpacity(o) {
+      if (!vrm) return;
+      vrm.scene.traverse((m) => {
+        if (!m.isMesh) return;
+        (Array.isArray(m.material) ? m.material : [m.material]).forEach((mat) => {
+          if (mat.userData.origTransparent === undefined) Object.assign(mat.userData, { origTransparent: mat.transparent, origDepthWrite: mat.depthWrite, origAlphaTest: mat.alphaTest });
+          if (mat.isOutline) { mat.visible = o >= 0.999; return; } // 描边在半透明时会透出一层深色外壳，隐藏
+          mat.opacity = o;
+          mat.alphaTest = o < 0.999 ? Math.min(mat.userData.origAlphaTest, 0.01) : mat.userData.origAlphaTest; // VRoid 默认低于 0.5 的像素会被裁掉
+          mat.transparent = o < 0.999 || mat.userData.origTransparent;
+          mat.depthWrite = o < 0.999 ? false : mat.userData.origDepthWrite;
+          mat.needsUpdate = true;
+        });
+      });
+    }
+
+    // ---------- 界面 ----------
+    const bar = document.getElementById('forms');
+    const pick = [0, 1, 2, 3, 4, 5, 6, 8, 9, 12, 15, 17, 20, 23];
+    let form = FORMS[1], t = form.t0, playing = true;
+    pick.forEach((i) => {
+      const b = document.createElement('button');
+      b.textContent = FORMS[i].name;
+      if (FORMS[i] === form) b.classList.add('on');
+      b.onclick = () => { form = FORMS[i]; t = form.t0; bar.querySelectorAll('button').forEach((x) => x.classList.toggle('on', x === b)); };
+      bar.appendChild(b);
+    });
+    const playBtn = document.getElementById('play');
+    playBtn.onclick = () => { playing = !playing; playBtn.textContent = playing ? '⏸ 暂停' : '▶ 播放'; playBtn.classList.toggle('on', playing); };
+    const cam = { az: 20 * DEG, el: 6 * DEG, dist: 3.8, ty: 0.9 };
+    document.querySelectorAll('[data-az]').forEach((b) => (b.onclick = () => { cam.az = +b.dataset.az * DEG; cam.dist = 3.8; cam.ty = 0.9; document.querySelectorAll('[data-az]').forEach((x) => x.classList.toggle('on', x === b)); }));
+    document.getElementById('close').onclick = () => { cam.dist = 1.4; cam.ty = 1.35; };
+    document.getElementById('opacity').oninput = (e) => setOpacity(+e.target.value);
+    const el = renderer.domElement;
+    let drag = null;
+    el.addEventListener('pointerdown', (e) => { drag = [e.clientX, e.clientY]; el.setPointerCapture(e.pointerId); });
+    el.addEventListener('pointermove', (e) => { if (!drag) return; cam.az -= (e.clientX - drag[0]) * 0.008; cam.el = Math.min(80 * DEG, Math.max(-5 * DEG, cam.el + (e.clientY - drag[1]) * 0.006)); drag = [e.clientX, e.clientY]; });
+    el.addEventListener('pointerup', () => (drag = null));
+    el.addEventListener('wheel', (e) => { e.preventDefault(); cam.dist = Math.min(8, Math.max(0.6, cam.dist * Math.exp(e.deltaY * 0.001))); }, { passive: false });
+    function resize() { const w = stage.clientWidth, h = stage.clientHeight; renderer.setSize(w, h, false); camera.aspect = w / Math.max(1, h); camera.updateProjectionMatrix(); }
+    new ResizeObserver(resize).observe(stage); resize();
+
+    let last = performance.now(), yawS = null;
+    function frame(now) {
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      if (playing) { t += dt; if (t > form.t1) t = form.t0; }
+      const P = sample(t);
+      if (vrm) { applyPose(P); vrm.update(dt); }
+      const hips = vrm ? rig.n('hips').getWorldPosition(V(0, 0, 0)) : V(0, 0.9, 0);
+      yawS = yawS == null ? P.yaw : yawS + (P.yaw - yawS) * (1 - Math.exp(-dt * 2));
+      const az = cam.az + yawS * DEG, target = V(hips.x, cam.ty, hips.z);
+      camera.position.set(target.x + cam.dist * Math.sin(az) * Math.cos(cam.el), target.y + cam.dist * Math.sin(cam.el), target.z + cam.dist * Math.cos(az) * Math.cos(cam.el));
+      camera.lookAt(target);
+      key.target.position.copy(target); key.position.set(target.x + 1.5, 3, target.z + 2.5);
+      renderer.render(scene, camera);
+      requestAnimationFrame(frame);
+    }
+    requestAnimationFrame(frame);
+    window.VrmPreview = { get vrm() { return vrm; }, cam, setForm: (i, frac) => { form = FORMS[i]; t = form.t0 + (frac || 0) * (form.t1 - form.t0); }, setPlaying: (p) => (playing = p), setOpacity };
+  })();
+  </script>
+</body>
+</html>
