@@ -168,12 +168,14 @@
     guides.add(g);
     return g;
   });
-  const comDot = new T.Mesh(new T.CircleGeometry(0.045, 24), new T.MeshBasicMaterial({ color: 0xffe07a, transparent: true, opacity: 0.9, depthWrite: false }));
+  const comDot = new T.Mesh(new T.CircleGeometry(0.045, 24), new T.MeshBasicMaterial({ color: 0xffe07a, transparent: true, opacity: 0.9, depthWrite: false, depthTest: false }));
+  comDot.renderOrder = 10; // 重心标识始终画在最上层，不会被裤腿、衣摆挡住
   comDot.rotation.x = -Math.PI / 2;
   comDot.position.y = 0.008;
   const comRing = new T.Mesh(new T.RingGeometry(0.06, 0.075, 32), comDot.material);
   comRing.rotation.x = -Math.PI / 2;
   comRing.position.y = 0.008;
+  comRing.renderOrder = 10;
   guides.add(comDot, comRing);
 
   function updateGuides(P) {
