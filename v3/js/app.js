@@ -145,6 +145,10 @@
   const fig = new Tj.Figure();
   scene.add(fig.root);
   const refFig = new Tj.Figure(); // 不渲染，只用来计算标准动作的关节角度
+  // 人物形象：默认用 VRoid 做的"太极武者"模型（由上面的人体求解器驱动）；加载失败时退回人体结构模型
+  const avatar = new Tj.Avatar(scene);
+  let avatarOn = false;
+  const opacityBy = { avatar: 1, anatomy: +document.getElementById('opacity').value };
 
   // 步法辅助：目标脚印 + 重心点（跟着人物一起镜像）
   const guides = new T.Group();
@@ -206,7 +210,7 @@
   function pushTrails() {
     for (const tr of trails) {
       const a = tr.geo.attributes.position.array;
-      const w = fig.J['wrist' + tr.side];
+      const w = (avatarOn ? avatar.J : fig.J)['wrist' + tr.side];
       if (tr.n === TRAIL_N) a.copyWithin(0, 3); else tr.n++;
       a.set([w.x, w.y, w.z], (tr.n - 1) * 3);
       tr.geo.attributes.position.needsUpdate = true;
@@ -260,7 +264,8 @@
     const heading = info.yaw * mirror;
     let tx = info.pelvis.x * mirror, ty = 0.95, tz = info.pelvis.z;
     if (cam.focus === 'hands') { // 手部特写：镜头对准两手之间
-      const a = fig.J.wristL, b = fig.J.wristR;
+      const W = avatarOn ? avatar.J : fig.J;
+      const a = W.wristL, b = W.wristR;
       tx = ((a.x + b.x) / 2) * mirror; ty = (a.y + b.y) / 2; tz = (a.z + b.z) / 2;
     }
     const k = cam.inited ? 1 - Math.exp(-dt * 2.2) : 1;
@@ -599,7 +604,35 @@
   $('chkTint').onchange = (e) => fig.setTint(e.target.checked);
   $('chkGuide').onchange = (e) => { guides.visible = e.target.checked; $('weightBox').hidden = !e.target.checked; };
   $('chkTrail').onchange = (e) => { trails.forEach((tr) => (tr.line.visible = e.target.checked)); clearTrails(); };
-  $('opacity').oninput = (e) => fig.setSkinOpacity(+e.target.value);
+  $('opacity').oninput = (e) => {
+    const o = +e.target.value;
+    opacityBy[avatarOn ? 'avatar' : 'anatomy'] = o;
+    if (avatarOn) avatar.setOpacity(o); else fig.setSkinOpacity(o);
+  };
+  function setFigureMode(mode) {
+    avatarOn = mode === 'avatar' && avatar.ready;
+    $('figMode').value = avatarOn ? 'avatar' : 'anatomy';
+    avatar.setVisible(avatarOn);
+    // VRoid 模型按 sRGB 配色；人体结构模型沿用原来的线性输出
+    renderer.outputEncoding = avatarOn ? T.sRGBEncoding : T.LinearEncoding;
+    scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true)); });
+    fig.setLayer('skin', !avatarOn && $('chkSkin').checked);
+    fig.setLayer('muscle', !avatarOn && $('chkMuscle').checked);
+    fig.setLayer('bone', !avatarOn && $('chkBone').checked);
+    fig.setLayer('hand', !avatarOn);
+    $('anatomyOpts').hidden = avatarOn;
+    $('opacity').value = opacityBy[avatarOn ? 'avatar' : 'anatomy'];
+    $('opacity').dispatchEvent(new Event('input'));
+    clearTrails();
+  }
+  $('figMode').onchange = (e) => setFigureMode(e.target.value);
+  avatar.load('../models/taiji-warrior.vrm', (f) => setStatus(`正在加载人物模型… ${Math.round(f * 100)}%`))
+    .then(() => { if ($('figMode').value === 'avatar') setFigureMode('avatar'); setStatus(''); })
+    .catch(() => {
+      $('figMode').querySelector('option[value=avatar]').disabled = true;
+      setFigureMode('anatomy');
+      setStatus('人物模型没能加载（直接双击打开网页时，浏览器不允许读取模型文件），已改用人体结构模型演示。用网址方式打开即可看到太极武者形象。');
+    });
   $('btnSpeakKey').onclick = () => {
     const f = S.item;
     if (S.playing) pause();
@@ -634,6 +667,7 @@
     tick(dt);
     const P = sample(S.t);
     const info = fig.apply(P);
+    if (avatarOn) { avatar.apply(P, fig); avatar.update(dt, fig.root.scale.x < 0 ? -1 : 1); }
     if (guides.visible) updateGuides(P);
     if (S.playing) pushTrails();
     updateCamera(info, dt);
@@ -644,5 +678,5 @@
   requestAnimationFrame(frame);
 
   // 供调试/截图使用
-  window.TaijiApp = { S, TRACKS, setLevel, setView, sample, fig, cam, coach, get TR() { return TR; } };
+  window.TaijiApp = { S, TRACKS, setLevel, setView, sample, fig, cam, coach, avatar, setFigureMode, get TR() { return TR; } };
 })();
