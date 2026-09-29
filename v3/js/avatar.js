@@ -7,10 +7,14 @@
   const DEG = Math.PI / 180;
   const LEG = 0.87; // 求解器的腿长（大腿 + 小腿）
 
-  const SHAPES = { // 手指弯曲角度：[近节, 中节, 远节]；拇指 [掌骨, 近节, 远节]
-    palm: { f: [[6, 8, 5], [5, 7, 5], [6, 8, 5], [8, 10, 6]], th: [5, 5, 5] },
-    fist: { f: [[85, 95, 55], [88, 100, 55], [88, 100, 55], [85, 95, 55]], th: [30, 35, 30] },
-    hook: { f: [[40, 30, 20], [35, 30, 20], [35, 30, 20], [40, 30, 20]], th: [20, 20, 15] },
+  // 手型：f 四指弯曲 [近节, 中节, 远节]；sp 四指向中指靠拢的角度（食指、中指、无名指、小指）；
+  // th 拇指三节 [向掌心, 向四指, 弯曲]（掌骨、近节、远节）
+  const SHAPES = {
+    palm: { f: [[6, 8, 5], [5, 7, 5], [6, 8, 5], [8, 10, 6]], sp: [-3, -1, 1, 3], th: [[0, 4, 2.5], [0, 4, 2.5], [0, 4, 2.5]] },
+    // 拳：四指卷握，拇指横压在食指、中指第二节上
+    fist: { f: [[85, 95, 55], [88, 100, 55], [88, 100, 55], [85, 95, 55]], sp: [0, 0, 0, 0], th: [[20, 80, 20], [0, 0, 100], [0, 0, 0]] },
+    // 勾手：五指指尖捏拢成一点，四指较直、向中间收拢，拇指指尖与四指指尖相碰（角度由指尖距离数值优化得到）
+    hook: { f: [[44, 25, 10], [40, 25, 10], [40, 25, 10], [44, 25, 10]], sp: [29, 10, -13, -33], th: [[60, 30, 20], [0, 0, 10], [0, 0, 0]] },
   };
   const FINGERS = ['Index', 'Middle', 'Ring', 'Little'], SEG = ['Proximal', 'Intermediate', 'Distal'];
   const THUMB = ['ThumbMetacarpal', 'ThumbProximal', 'ThumbDistal'];
@@ -101,14 +105,23 @@
         // 手指：按掌、拳、勾手的权重弯曲
         const hs = s > 0 ? P.lh : P.rh;
         const kw = hs.kw || { [hs.kind || 'palm']: 1 };
-        const curl = [0, 1, 2, 3].map(() => [0, 0, 0]), th = [0, 0, 0];
+        const curl = [0, 1, 2, 3].map(() => [0, 0, 0]), sp = [0, 0, 0, 0], th = [0, 1, 2].map(() => [0, 0, 0]);
         for (const key in kw) {
-          if (!kw[key]) continue;
-          SHAPES[key].f.forEach((row, i) => row.forEach((a, j) => (curl[i][j] += a * kw[key])));
-          SHAPES[key].th.forEach((a, j) => (th[j] += a * kw[key]));
+          const w = kw[key], sh = SHAPES[key];
+          if (!w) continue;
+          sh.f.forEach((row, i) => row.forEach((a, j) => (curl[i][j] += a * w)));
+          sh.sp.forEach((a, i) => (sp[i] += a * w));
+          sh.th.forEach((row, j) => row.forEach((a, c) => (th[j][c] += a * w)));
         }
-        FINGERS.forEach((f, i) => SEG.forEach((sg, j) => { const node = n(pre + f + sg); if (node) node.quaternion.setFromAxisAngle(_v.set(0, 0, 1), -s * curl[i][j] * DEG); }));
-        THUMB.forEach((b, j) => { const node = n(pre + b); if (node) node.quaternion.setFromEuler(new T.Euler(0, s * th[j] * 0.8 * DEG, -s * th[j] * 0.5 * DEG)); });
+        // 四指：绕 Z 轴弯向掌心；近节再绕 Y 轴向中指靠拢
+        FINGERS.forEach((f, i) => SEG.forEach((sg, j) => {
+          const node = n(pre + f + sg);
+          if (!node) return;
+          node.quaternion.setFromAxisAngle(_v.set(0, 0, 1), -s * curl[i][j] * DEG);
+          if (j === 0) node.quaternion.premultiply(_q.setFromAxisAngle(_v.set(0, 1, 0), s * sp[i] * DEG));
+        }));
+        // 拇指：绕 X 轴转向掌心，绕 Y 轴转向四指，绕 Z 轴弯曲
+        THUMB.forEach((b, j) => { const node = n(pre + b); if (node) node.quaternion.setFromEuler(new T.Euler(th[j][0] * DEG, s * th[j][1] * DEG, -s * th[j][2] * DEG)); });
         // 腿：T 字姿势时腿指向 -Y，膝盖朝 +Z
         const hip = J['hip' + side], kn = J['knee' + side], an = J['ankle' + side];
         const leg = (bone, d) => { const Y = d.clone().normalize().negate(); const Z = orth(S.pLeg[side], Y) || orth(V(0, 0, 1), Y); this.setWorld(bone, basisQ(Y.clone().cross(Z), Y, Z)); };
