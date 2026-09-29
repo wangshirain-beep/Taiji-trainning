@@ -64,6 +64,8 @@
       this.k = leg / LEG; // 模型单位 / 求解器单位
       this.hipRest = n('hips').position.clone();
       this.footY = wp('leftFoot').y; // 站立时脚踝离地高度（模型单位）
+      this.thigh = wp('leftUpperLeg').distanceTo(wp('leftLowerLeg'));
+      this.shin = wp('leftLowerLeg').distanceTo(wp('leftFoot'));
     }
 
     setWorld(name, q) {
@@ -123,10 +125,16 @@
         // 拇指：绕 X 轴转向掌心，绕 Y 轴转向四指，绕 Z 轴弯曲
         THUMB.forEach((b, j) => { const node = n(pre + b); if (node) node.quaternion.setFromEuler(new T.Euler(th[j][0] * DEG, s * th[j][1] * DEG, -s * th[j][2] * DEG)); });
         // 腿：T 字姿势时腿指向 -Y，膝盖朝 +Z
-        const hip = J['hip' + side], kn = J['knee' + side], an = J['ankle' + side];
+        // 模型的胯比求解器窄，所以按模型自己的髋关节重新求解，让脚踝落在求解器的脚踝位置（地面脚印处）
         const leg = (bone, d) => { const Y = d.clone().normalize().negate(); const Z = orth(S.pLeg[side], Y) || orth(V(0, 0, 1), Y); this.setWorld(bone, basisQ(Y.clone().cross(Z), Y, Z)); };
+        const hip = n(pre + 'UpperLeg').getWorldPosition(V(0, 0, 0)), a = this.thigh / k, b = this.shin / k;
+        const an = J['ankle' + side].clone(); an.y += this.footY / k - 0.08;
+        const d = an.sub(hip), L = Math.min(Math.max(d.length(), 0.01), a + b - 1e-4), dir = d.normalize();
+        const cosA = Math.min(1, Math.max(-1, (a * a + L * L - b * b) / (2 * a * L)));
+        const bend = orth(S.pLeg[side], dir) || orth(V(0, 0, 1), dir);
+        const kn = hip.clone().addScaledVector(dir, a * cosA).addScaledVector(bend, a * Math.sqrt(1 - cosA * cosA));
         leg(pre + 'UpperLeg', kn.clone().sub(hip));
-        leg(pre + 'LowerLeg', an.clone().sub(kn));
+        leg(pre + 'LowerLeg', hip.clone().addScaledVector(dir, L).sub(kn));
         this.setWorld(pre + 'Foot', g.foot.quaternion);
       }
       // 贴地：让着地的那只脚落在地面上
