@@ -142,13 +142,14 @@
   }
   label('前', 0, 2.8); label('后', 0, -2.8); label('左', 2.8, 0); label('右', -2.8, 0);
 
-  const fig = new Tj.Figure();
+  const fig = new Tj.Figure(); // 人体求解器：只用来计算关节位置和朝向，本身不显示
+  fig.root.traverse((o) => { if (o.isMesh) o.visible = false; });
   scene.add(fig.root);
   const refFig = new Tj.Figure(); // 不渲染，只用来计算标准动作的关节角度
-  // 人物形象：默认用 VRoid 做的"太极武者"模型（由上面的人体求解器驱动）；加载失败时退回人体结构模型
+  // 人物形象：VRoid 做的"太极武者"模型，由上面的人体求解器驱动
   const avatar = new Tj.Avatar(scene);
   let avatarOn = false;
-  const opacityBy = { avatar: 1, anatomy: +document.getElementById('opacity').value };
+  renderer.outputEncoding = T.sRGBEncoding; // VRoid 模型按 sRGB 配色
 
   // 步法辅助：目标脚印 + 重心点（跟着人物一起镜像）
   const guides = new T.Group();
@@ -600,41 +601,18 @@
     cam.follow = e.target.checked;
   };
   $('chkMirror').onchange = (e) => { fig.root.scale.x = e.target.checked ? -1 : 1; clearTrails(); };
-  $('chkSkin').onchange = (e) => fig.setLayer('skin', e.target.checked);
-  $('chkMuscle').onchange = (e) => fig.setLayer('muscle', e.target.checked);
-  $('chkBone').onchange = (e) => fig.setLayer('bone', e.target.checked);
-  $('chkTint').onchange = (e) => fig.setTint(e.target.checked);
   $('chkGuide').onchange = (e) => { guides.visible = e.target.checked; $('weightBox').hidden = !e.target.checked; };
   $('chkTrail').onchange = (e) => { trails.forEach((tr) => (tr.line.visible = e.target.checked)); clearTrails(); };
-  $('opacity').oninput = (e) => {
-    const o = +e.target.value;
-    opacityBy[avatarOn ? 'avatar' : 'anatomy'] = o;
-    if (avatarOn) avatar.setOpacity(o); else fig.setSkinOpacity(o);
-  };
-  function setFigureMode(mode) {
-    avatarOn = mode === 'avatar' && avatar.ready;
-    $('figMode').value = avatarOn ? 'avatar' : 'anatomy';
-    avatar.setVisible(avatarOn);
-    // VRoid 模型按 sRGB 配色；人体结构模型沿用原来的线性输出
-    renderer.outputEncoding = avatarOn ? T.sRGBEncoding : T.LinearEncoding;
-    scene.traverse((o) => { if (o.material) (Array.isArray(o.material) ? o.material : [o.material]).forEach((m) => (m.needsUpdate = true)); });
-    fig.setLayer('skin', !avatarOn && $('chkSkin').checked);
-    fig.setLayer('muscle', !avatarOn && $('chkMuscle').checked);
-    fig.setLayer('bone', !avatarOn && $('chkBone').checked);
-    fig.setLayer('hand', !avatarOn);
-    $('anatomyOpts').hidden = avatarOn;
-    $('opacity').value = opacityBy[avatarOn ? 'avatar' : 'anatomy'];
-    $('opacity').dispatchEvent(new Event('input'));
-    clearTrails();
-  }
-  $('figMode').onchange = (e) => setFigureMode(e.target.value);
+  $('opacity').oninput = (e) => avatar.setOpacity(+e.target.value);
   avatar.load('../models/taiji-warrior.vrm', (f) => setStatus(`正在加载人物模型… ${Math.round(f * 100)}%`))
-    .then(() => { if ($('figMode').value === 'avatar') setFigureMode('avatar'); setStatus(''); })
-    .catch(() => {
-      $('figMode').querySelector('option[value=avatar]').disabled = true;
-      setFigureMode('anatomy');
-      setStatus('人物模型没能加载（直接双击打开网页时，浏览器不允许读取模型文件），已改用人体结构模型演示。用网址方式打开即可看到太极武者形象。');
-    });
+    .then(() => {
+      avatarOn = true;
+      avatar.setVisible(true);
+      avatar.setOpacity(+$('opacity').value);
+      clearTrails();
+      setStatus('');
+    })
+    .catch(() => setStatus('人物模型没能加载：直接双击打开网页时，浏览器不允许读取模型文件。请用网址方式打开（例如 GitHub Pages 链接）。'));
   $('btnSpeakKey').onclick = () => {
     const f = S.item;
     if (S.playing) pause();
@@ -657,7 +635,6 @@
     else if (e.code === 'ArrowLeft') $('btnPrev').click();
   });
   trails.forEach((tr) => (tr.line.visible = false));
-  fig.setSkinOpacity(+$('opacity').value);
 
   setLevel('basic');
 
@@ -680,5 +657,5 @@
   requestAnimationFrame(frame);
 
   // 供调试/截图使用
-  window.TaijiApp = { S, TRACKS, setLevel, setView, sample, fig, cam, coach, avatar, setFigureMode, get TR() { return TR; } };
+  window.TaijiApp = { S, TRACKS, setLevel, setView, sample, fig, cam, coach, avatar, get TR() { return TR; } };
 })();

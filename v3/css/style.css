@@ -122,8 +122,6 @@ button.small { padding: 2px 8px; }
 .time { color: var(--muted); font-variant-numeric: tabular-nums; min-width: 88px; text-align: right; }
 .opts label { color: var(--muted); display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .opts label.dim { opacity: 0.4; }
-.opts .grp { display: inline-flex; gap: 8px; flex-wrap: wrap; }
-.opts .grp[hidden] { display: none; }
 .opts input[type=checkbox], .opts input[type=range] { accent-color: var(--accent); }
 .opts input[type=range] { width: 80px; }
 .sep { width: 1px; height: 18px; background: var(--line); margin: 0 4px; }
